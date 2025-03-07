@@ -1,11 +1,11 @@
-﻿using System.Net;
-using GeeksCoreLibrary.Components.OrderProcess.Models;
+﻿using GeeksCoreLibrary.Components.OrderProcess.Models;
 using GeeksCoreLibrary.Components.ShoppingBasket;
 using GeeksCoreLibrary.Components.ShoppingBasket.Interfaces;
 using GeeksCoreLibrary.Core.DependencyInjection.Interfaces;
 using GeeksCoreLibrary.Core.Enums;
 using GeeksCoreLibrary.Core.Extensions;
 using GeeksCoreLibrary.Core.Helpers;
+using GeeksCoreLibrary.Core.Interfaces;
 using GeeksCoreLibrary.Core.Models;
 using GeeksCoreLibrary.Modules.Databases.Interfaces;
 using GeeksCoreLibrary.Modules.Payments.Enums;
@@ -29,30 +29,23 @@ using Constants = GeeksCoreLibrary.Components.OrderProcess.Models.Constants;
 namespace GeeksCoreLibrary.Modules.Payments.RaboSmartPay.Services;
 
 /// <inheritdoc cref="IPaymentServiceProviderService" />
-public class RaboSmartPayService : PaymentServiceProviderBaseService, IPaymentServiceProviderService, ITransientService
+public class RaboSmartPayService(
+    IShoppingBasketsService shoppingBasketsService,
+    IDatabaseConnection databaseConnection,
+    IOptions<GclSettings> gclSettings,
+    IDatabaseHelpersService databaseHelpersService,
+    ILogger<RaboSmartPayService> logger,
+    IHttpClientService httpClientService,
+    IHttpContextAccessor? httpContextAccessor = null)
+    : PaymentServiceProviderBaseService(databaseHelpersService, databaseConnection, logger, httpContextAccessor), IPaymentServiceProviderService, ITransientService
 {
-    private readonly IShoppingBasketsService shoppingBasketsService;
-    private readonly IHttpContextAccessor httpContextAccessor;
-    private readonly IDatabaseConnection databaseConnection;
-    private readonly GclSettings gclSettings;
+    private readonly IHttpContextAccessor? httpContextAccessor = httpContextAccessor;
+    private readonly IDatabaseConnection databaseConnection = databaseConnection;
+    private readonly GclSettings gclSettings = gclSettings.Value;
 
     private OmniKassa.Environment environment = OmniKassa.Environment.SANDBOX;
-    private string refreshToken = "";
-    private string signingKey = "";
-
-    public RaboSmartPayService(IShoppingBasketsService shoppingBasketsService,
-                               IDatabaseConnection databaseConnection,
-                               IOptions<GclSettings> gclSettings,
-                               IDatabaseHelpersService databaseHelpersService,
-                               ILogger<RaboSmartPayService> logger,
-                               IHttpContextAccessor httpContextAccessor = null)
-        : base(databaseHelpersService, databaseConnection, logger, httpContextAccessor)
-    {
-        this.shoppingBasketsService = shoppingBasketsService;
-        this.httpContextAccessor = httpContextAccessor;
-        this.databaseConnection = databaseConnection;
-        this.gclSettings = gclSettings.Value;
-    }
+    private string? refreshToken = "";
+    private string? signingKey = "";
 
     /// <summary>
     /// Set the refresh token, signing key and environment based on the environment.
@@ -149,7 +142,7 @@ public class RaboSmartPayService : PaymentServiceProviderBaseService, IPaymentSe
     {
         var orderItems = new List<OrderItem>();
 
-        foreach (var (main, lines) in shoppingBaskets)
+        foreach (var (_, lines) in shoppingBaskets)
         {
             foreach (var line in lines)
             {
@@ -182,11 +175,11 @@ public class RaboSmartPayService : PaymentServiceProviderBaseService, IPaymentSe
     /// <param name="userDetails">The <see cref="WiserItemModel"/> containing the user details.</param>
     /// <param name="detailKeyPrefix">Additional string as a prefix for "street", "zipcode", "city", "country", "housenumber" and "housenumber_suffix". For example for shipping.</param>
     /// <returns>Returns an <see cref="Address"/> with the required information.</returns>
-    private Address CreateAddress(WiserItemModel userDetails, string detailKeyPrefix = "")
+    private static Address? CreateAddress(WiserItemModel userDetails, string detailKeyPrefix = "")
     {
         //If a prefix is given but any of the required values doesn't contain a value return null.
-        if (!String.IsNullOrWhiteSpace(detailKeyPrefix) &&
-            (String.IsNullOrWhiteSpace(userDetails.GetDetailValue($"{detailKeyPrefix}street")))
+        if ((!String.IsNullOrWhiteSpace(detailKeyPrefix) &&
+             String.IsNullOrWhiteSpace(userDetails.GetDetailValue($"{detailKeyPrefix}street")))
             || String.IsNullOrWhiteSpace(userDetails.GetDetailValue($"{detailKeyPrefix}zipcode"))
             || String.IsNullOrWhiteSpace(userDetails.GetDetailValue($"{detailKeyPrefix}city"))
             || String.IsNullOrWhiteSpace(userDetails.GetDetailValue($"{detailKeyPrefix}country")))
@@ -356,9 +349,9 @@ AND paymentServiceProvider.entity_type = '{Constants.PaymentServiceProviderEntit
     }
 
     /// <inheritdoc />
-    public string GetInvoiceNumberFromRequest()
+    public Task<string> GetInvoiceNumberFromRequestAsync()
     {
-        return HttpContextHelpers.GetRequestValue(httpContextAccessor?.HttpContext, RaboSmartPayConstants.WebhookInvoiceNumberProperty);
+        return Task.FromResult(HttpContextHelpers.GetRequestValue(httpContextAccessor?.HttpContext, RaboSmartPayConstants.WebhookInvoiceNumberProperty));
     }
 
     /// <summary>
@@ -492,14 +485,12 @@ AND paymentServiceProvider.entity_type = '{Constants.PaymentServiceProviderEntit
                 var signatureData = new List<string>
                 {
                     result.MerchantOrderId,
-                    result.OrderStatus.ToString()
+                    result.OrderStatus?.ToString() ?? String.Empty
                 };
-                var signature = Signable.CalculateSignature(signatureData, Convert.FromBase64String(signingKey));
+                var signature = Signable.CalculateSignature(signatureData, Convert.FromBase64String(signingKey!));
 
                 var notifyUrl = $"{notifyUrlBase}&order_id={result.MerchantOrderId}&status={result.OrderStatus}&signature={signature}";
-
-                var request = (HttpWebRequest) WebRequest.Create(notifyUrl);
-                _ = request.GetResponseAsync(); //Ignore the return value.
+                _ = await httpClientService.Client.GetAsync(notifyUrl); //Ignore the return value.
             }
         } while (response.MoreOrderResultsAvailable);
     }
