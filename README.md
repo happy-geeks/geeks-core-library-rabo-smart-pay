@@ -5,9 +5,6 @@
 - **Language(s)**: C#
 - **Framework(s)**: .NET 9.0
 - **Database**: MySQL (via Wiser EAV)
-- **Status**: Production
-- **Critical Level**: High
-- **Last Updated**: 2025-08-01
 
 ## Purpose & Context
 
