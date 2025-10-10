@@ -127,13 +127,6 @@ All values are stored encrypted.
 - Check URL matches OmniKassa dashboard configuration
 - Test endpoint manually with sample payload
 
-## Known Issues & Technical Debt
-
-- [ ] **No Unit Tests** - Testing is currently manual using SANDBOX
-- [ ] **No Caching** - PSP settings loaded from database every request
-- [ ] **No Retry Logic** - Failed webhook callbacks not retried automatically
-- [ ] **Limited Error Details** - Some exceptions converted to generic messages
-
 ## External Resources
 
 - [Rabobank OmniKassa Developer Portal](https://developer.rabobank.nl/omnikassa)
